@@ -1,0 +1,6 @@
+bin
+obj
+compile_commands.json
+__pycache__
+debug.log
+.vscode
