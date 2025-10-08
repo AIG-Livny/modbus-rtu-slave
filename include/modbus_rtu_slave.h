@@ -16,11 +16,6 @@ extern "C" {
 
 /// Library configurations. 1 - enabled, 0 - disabled
 
-#ifndef MBRS_CRC_ENABLE
-    // If CRC16 calculation already present in project, you can disable it
-    #define MBRS_CRC_ENABLE 1
-#endif
-
 #ifndef MBRS_CRC_TABLE_CALCULATION
     // Calculate CRC16 by precalculated tables. Increases flash memory consumption, but faster runtime code
     #define MBRS_CRC_TABLE_CALCULATION 1
@@ -53,12 +48,14 @@ enum mbrs_internal_error {
     MBRS_INTERNAL_ERROR_CRC=2,
     MBRS_INTERNAL_ERROR_INVALID_PACKET=3,
     MBRS_INTERNAL_ERROR_ANSWERED_ERROR=4,
-
+    MBRS_INTERNAL_ERROR_MESSAGE_ENDED=5,
+    MBRS_INTERNAL_ERROR_BROADCAST_ONLY_FOR_MULTIPLE_REGISTERS=6,
 
     // Error codes above this level is critical
     MBRS_INTERNAL_CRITICAL_LEVEL_ERRORS=100,
 
     MBRS_INTERNAL_ERROR_STRUCTURE_POINTER_IS_NULL=101,
+    MBRS_INTERNAL_ERROR_TX_BUFFER_IS_OVER=102,
 };
 
 /// Internal Errors END
@@ -107,9 +104,11 @@ struct mbrs_operation_t {
     struct mbrs_context_t* context;
     uint8_t* rx_buffer_pointer;
     uint8_t* tx_buffer_pointer;
+    uint16_t rx_buffer_len;
     uint16_t tx_buffer_len;
-    uint8_t rx_bytes;
-    uint8_t tx_bytes;
+    uint16_t rx_bytes;
+    uint16_t tx_bytes;
+    uint16_t crc;
 };
 
 struct mbrs_context_t {
@@ -141,9 +140,14 @@ struct mbrs_context_t {
 // Run modbus process
 enum mbrs_internal_error mbrs_process ( struct mbrs_operation_t* op );
 
-#if MBRS_CRC_ENABLE == 1
-uint16_t mbrs_crc16(uint8_t* buf, uint16_t len);
-#endif
+// Input byte from USART
+void mbrs_input_byte ( struct mbrs_operation_t* op, uint8_t data, enum mbrs_internal_error* where_put_ret_code );
+
+// Input byte to USART
+uint8_t mbrs_output_byte ( struct mbrs_operation_t* op, enum mbrs_internal_error* where_put_ret_code );
+
+// Calculate crc16
+uint16_t mbrs_crc16( const uint8_t* buf, uint16_t len );
 
 #ifndef __cplusplus
 #pragma GCC diagnostic pop

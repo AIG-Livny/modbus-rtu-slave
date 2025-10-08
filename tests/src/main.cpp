@@ -53,15 +53,13 @@ const uint8_t read_holding_registers[] = {0x01,0x03,0x12,0x34,0x00,0x05,0xC1,0x7
 const uint8_t read_holding_registers_error[] = {0x01,0x03,0x12,0x38,0x00,0x05,0x01,0x7C};
 const uint8_t diagnostic_01_05[] = {0x01,0x08,0x00,0x01,0x00,0x05,0x71,0xC8};
 const uint8_t diagnostic_stat[] = {0x01,0x08,0xAA,0x00,0x00,0x00,0xC1,0xD3};
+const uint8_t diagnostic_echo[] = {0x01,0x08,0x00,0x00,0x12,0x34,0xED,0x7C};
 const uint8_t write_registers[] = {0x01,0x10,0x12,0x34,0x00,0x02,0x04,0x45,0x67,0x78,0x9A,0x23,0x50};
+const uint8_t broadcast_write_registers[] = {0x00,0x10,0x12,0x34,0x00,0x02,0x04,0x45,0x67,0x78,0x9A,0x27,0xAC};
 
 
 TEST(MainTest, All) {
     uint8_t tx_buffer[50];
-
-    //uint16_t crc = mbrs_crc16(rx_buffer,11);
-    //rx_buffer[11] = crc;
-    //rx_buffer[12] = crc >> 8;
 
     struct mbrs_context_t mb = {
         .address = 1,
@@ -114,6 +112,7 @@ TEST(MainTest, All) {
 
     // Add write support
     mb.write_multiple_registers_cb = write_register;
+    op.rx_bytes = sizeof(write_registers);
     ec = mbrs_process(&op);
 
     EXPECT_EQ(mbrs_crc16(op.tx_buffer_pointer,op.tx_bytes), 0);
@@ -121,6 +120,30 @@ TEST(MainTest, All) {
     for ( uint8_t i=0; i < sizeof(test_registers); i++){
         EXPECT_EQ(op.rx_buffer_pointer[7+i], test_registers[i]);
     }
+
+    // broadcast writing
+    op.rx_buffer_pointer = (uint8_t*)broadcast_write_registers;
+    op.rx_bytes = sizeof(broadcast_write_registers);
+    memset(test_registers, 0, 4);
+    EXPECT_EQ(test_registers[0],0);
+
+    ec = mbrs_process(&op);
+    EXPECT_EQ(ec,MBRS_INTERNAL_OK);
+    for ( uint8_t i=0; i < sizeof(test_registers); i++){
+        EXPECT_EQ(op.rx_buffer_pointer[7+i], test_registers[i]);
+    }
+
+    // Diagnostic echo function
+    op.rx_buffer_pointer = (uint8_t*)diagnostic_echo;
+    op.rx_bytes = sizeof(diagnostic_echo);
+    tx_buffer[4] = 0;
+    tx_buffer[5] = 0;
+
+    ec = mbrs_process(&op);
+    EXPECT_EQ(ec,MBRS_INTERNAL_OK);
+    EXPECT_EQ(tx_buffer[4],diagnostic_echo[4]);
+    EXPECT_EQ(tx_buffer[5],diagnostic_echo[5]);
+
 
     // statistics
     op.rx_buffer_pointer = (uint8_t*)diagnostic_stat;
@@ -144,11 +167,13 @@ TEST(MainTest, All) {
     // Set diagnostic handler
     mb.diagnostic_cb = diagnostic;
 
+    op.rx_bytes = sizeof(diagnostic_01_05);
     ec = mbrs_process(&op);
 
     EXPECT_EQ(ec,MBRS_INTERNAL_OK);
     EXPECT_EQ(op.tx_buffer_pointer[4], 0x12);
     EXPECT_EQ(op.tx_buffer_pointer[5], 0x34);
+
 }
 
 int main(int argc, char **argv) {

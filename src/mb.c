@@ -30,40 +30,42 @@
 #define DIAG_ANSWER_LEN 6
 #define ERROR_ANSWER_LEN 3
 
-#if MBRS_CRC_ENABLE == 1
-uint16_t mbrs_crc16(uint8_t* buf, uint16_t len){
+uint16_t mbrs_crc16_add ( uint8_t data, uint16_t crc ) {
+    #if MBRS_CRC_TABLE_CALCULATION == 1
+
+    uint8_t* pcrc = (uint8_t*)&crc;
+
+    uint8_t s = pcrc[0] ^ data;
+    pcrc[0] = pcrc[1];
+    pcrc[1] = table_crc_lo[s];
+    pcrc[0] ^= table_crc_hi[s];
+
+    #else
+
+    uint8_t flag;
+	crc ^= data;
+	for ( uint8_t i = 0; i < 8; i++ ) {
+		flag = (uint8_t)(crc & 0x0001);
+		crc >>= 1;
+		if (flag){
+			crc ^= 0xA001;
+		}
+	}
+
+    #endif
+
+    return crc;
+}
+
+uint16_t mbrs_crc16 ( const uint8_t* buf, uint16_t len ) {
 	uint16_t crc = 0xFFFF;
     for ( uint8_t byte_num = 0; byte_num < len; byte_num++ ) {
-
-        #if MBRS_CRC_TABLE_CALCULATION == 1
-
-        uint8_t* pcrc = (uint8_t*)&crc;
-
-        uint8_t s = pcrc[0] ^ buf[byte_num];
-        pcrc[0] = pcrc[1];
-        pcrc[1] = table_crc_lo[s];
-        pcrc[0] ^= table_crc_hi[s];
-
-        #else
-
-        uint8_t flag;
-	    crc ^= buf[byte_num];
-	    for ( uint8_t i = 0; i < 8; i++ ) {
-	    	flag = (uint8_t)(crc & 0x0001);
-	    	crc >>= 1;
-	    	if (flag){
-	    		crc ^= 0xA001;
-	    	}
-	    }
-
-        #endif
-
+        crc = mbrs_crc16_add(buf[byte_num], crc);
     }
     return crc;
 }
-#endif
 
-void fill_error (struct mbrs_operation_t* op, enum mbrs_protocol_error ec ) {
+void fill_error ( struct mbrs_operation_t* op, enum mbrs_protocol_error ec ) {
     op->tx_buffer_pointer[BN_FUNCTION_CODE] |= 0x80;
     op->tx_buffer_pointer[BN_ERROR_CODE] = ec;
     op->tx_bytes = ERROR_ANSWER_LEN;
@@ -117,7 +119,7 @@ enum mbrs_internal_error read( struct mbrs_operation_t* op, mbrs_read_cb_t* read
     return MBRS_INTERNAL_OK;
 }
 
-enum mbrs_internal_error write( struct mbrs_operation_t* op, mbrs_write_cb_t* write_callback ) {
+enum mbrs_internal_error write ( struct mbrs_operation_t* op, mbrs_write_cb_t* write_callback ) {
     if ( write_callback ) {
         uint16_t register_address = GET_VAL_BUF(op->rx_buffer_pointer,BN_REGISTER_ADDRESS);
         uint16_t number_of_registers = GET_VAL_BUF(op->rx_buffer_pointer,BN_NUMBER_OF_REGISTERS);
@@ -157,6 +159,11 @@ enum mbrs_internal_error diagnostic( struct mbrs_operation_t* op ) {
     uint16_t data = GET_VAL_BUF(op->rx_buffer_pointer,BN_DIAG_DATA);
     uint16_t return_data = 0;
 
+    // Echo
+    if ( subfunction == 0 ) {
+        memcpy(op->tx_buffer_pointer, op->rx_buffer_pointer, DIAG_ANSWER_LEN);
+    } else
+
     #if MBRS_STATISTICS_ENABLED == 1
 
         if ((subfunction >= MBRS_STATISTICS_DIAGNOSTIC_START_ADDRESS) and (subfunction < MBRS_STATISTICS_DIAGNOSTIC_START_ADDRESS + 5) ) {
@@ -170,8 +177,6 @@ enum mbrs_internal_error diagnostic( struct mbrs_operation_t* op ) {
 
             SET_VAL_BUF(op->tx_buffer_pointer, BN_REGISTER_ADDRESS, subfunction);
             SET_VAL_BUF(op->tx_buffer_pointer, BN_DIAG_DATA, return_data);
-
-            op->tx_bytes = DIAG_ANSWER_LEN;
 
         } else
 
@@ -190,8 +195,6 @@ enum mbrs_internal_error diagnostic( struct mbrs_operation_t* op ) {
         } else {
             SET_VAL_BUF(op->tx_buffer_pointer, BN_REGISTER_ADDRESS, subfunction);
             SET_VAL_BUF(op->tx_buffer_pointer, BN_DIAG_DATA, return_data);
-
-            op->tx_bytes = DIAG_ANSWER_LEN;
         }
 
     } else {
@@ -204,6 +207,7 @@ enum mbrs_internal_error diagnostic( struct mbrs_operation_t* op ) {
         return MBRS_INTERNAL_ERROR_ANSWERED_ERROR;
     }
 
+    op->tx_bytes = DIAG_ANSWER_LEN;
     return MBRS_INTERNAL_OK;
 }
 
@@ -212,29 +216,40 @@ enum mbrs_internal_error mbrs_process ( struct mbrs_operation_t* op ) {
         return MBRS_INTERNAL_ERROR_STRUCTURE_POINTER_IS_NULL;
     }
 
+    if ( op->rx_bytes < MINIMAL_PACKET_LENGTH ) {
+        #if MBRS_STATISTICS_ENABLED == 1
+        op->context->stat.invalid_packets_recieved += 1;
+        #endif
+
+        op->rx_bytes = 0;
+        return MBRS_INTERNAL_ERROR_INVALID_PACKET;
+    }
+
+    op->rx_bytes = 0;
+
     #if MBRS_STATISTICS_ENABLED == 1
     op->context->stat.any_recieved += 1;
     #endif
 
+    bool broadcast = false;
+    enum function_code fc = op->rx_buffer_pointer[BN_FUNCTION_CODE];
+
     if ( op->rx_buffer_pointer[BN_ADDRESS] != op->context->address ) {
-        return MBRS_INTERNAL_ERROR_ADDRESS_NOT_MATCH;
+        if ( op->rx_buffer_pointer[BN_ADDRESS] == 0 ) {
+            if ( fc != CMD_WRITE_MULTIPLE_REGISTERS ) {
+                return MBRS_INTERNAL_ERROR_BROADCAST_ONLY_FOR_MULTIPLE_REGISTERS;
+            }
+            broadcast = true;
+        } else {
+            return MBRS_INTERNAL_ERROR_ADDRESS_NOT_MATCH;
+        }
     }
 
     #if MBRS_STATISTICS_ENABLED == 1
     op->context->stat.my_packets_recieved += 1;
     #endif
 
-    if ( op->rx_bytes < MINIMAL_PACKET_LENGTH ) {
-        #if MBRS_STATISTICS_ENABLED == 1
-        op->context->stat.invalid_packets_recieved += 1;
-        #endif
-
-        return MBRS_INTERNAL_ERROR_INVALID_PACKET;
-    }
-
-    #if MBRS_CRC_ENABLE == 1
-
-    if ( mbrs_crc16(op->rx_buffer_pointer, op->rx_bytes ) != 0 ) {
+    if ( op->crc != 0 ) {
         #if MBRS_STATISTICS_ENABLED == 1
         op->context->stat.invalid_packets_recieved += 1;
         #endif
@@ -242,12 +257,9 @@ enum mbrs_internal_error mbrs_process ( struct mbrs_operation_t* op ) {
         return MBRS_INTERNAL_ERROR_CRC;
     }
 
-    #endif
-
     op->tx_buffer_pointer[BN_ADDRESS] = op->context->address;
     op->tx_buffer_pointer[BN_FUNCTION_CODE] = op->rx_buffer_pointer[BN_FUNCTION_CODE];
 
-    enum function_code fc = op->rx_buffer_pointer[BN_FUNCTION_CODE];
     enum mbrs_internal_error error;
 
     switch ( fc ) {
@@ -266,21 +278,63 @@ enum mbrs_internal_error mbrs_process ( struct mbrs_operation_t* op ) {
             break;
     }
 
-    #if MBRS_STATISTICS_ENABLED == 1
-    if ( error == MBRS_INTERNAL_OK ) {
-        op->context->stat.ok_sended += 1;
+    if ( not broadcast ) {
+
+        #if MBRS_STATISTICS_ENABLED == 1
+        if ( error == MBRS_INTERNAL_OK ) {
+            op->context->stat.ok_sended += 1;
+        }
+        #endif
+
+        uint16_t crc = mbrs_crc16( op->tx_buffer_pointer, op->tx_bytes );
+        op->tx_buffer_pointer[op->tx_bytes] = crc;
+        op->tx_buffer_pointer[op->tx_bytes + 1] = crc >> 8;
+
+        op->tx_bytes += 2;
+
+    } else {
+        op->tx_bytes = 0;
     }
-    #endif
-
-    #if MBRS_CRC_ENABLE == 1
-
-    uint16_t crc = mbrs_crc16( op->tx_buffer_pointer, op->tx_bytes );
-    op->tx_buffer_pointer[op->tx_bytes] = crc;
-    op->tx_buffer_pointer[op->tx_bytes + 1] = crc >> 8;
-
-    op->tx_bytes += 2;
-
-    #endif
 
     return error;
 }
+
+void mbrs_input_byte ( struct mbrs_operation_t* op, uint8_t data, enum mbrs_internal_error* where_put_ret_code ) {
+    if ( op->rx_bytes == 0 ) {
+        op->crc = 0xFFFF;
+    }
+
+    op->rx_buffer_pointer[op->rx_bytes] = data;
+    op->rx_bytes += 1;
+
+    if ( op->rx_bytes >= op->rx_buffer_len ) {
+        op->rx_bytes = 0;
+        if ( where_put_ret_code ) {
+            *where_put_ret_code = MBRS_INTERNAL_ERROR_TX_BUFFER_IS_OVER;
+        }
+    }
+
+    op->crc = mbrs_crc16_add( data, op->crc );
+
+    if ( where_put_ret_code ) {
+        *where_put_ret_code = MBRS_INTERNAL_OK;
+    }
+}
+
+uint8_t mbrs_output_byte ( struct mbrs_operation_t* op, enum mbrs_internal_error* where_put_ret_code ) {
+    if ( op->tx_bytes == 0 ) {
+        if ( where_put_ret_code ) {
+            *where_put_ret_code = MBRS_INTERNAL_ERROR_MESSAGE_ENDED;
+        }
+        return 0;
+    }
+
+    uint8_t result = op->tx_buffer_pointer[op->tx_bytes];
+    op->tx_bytes -= 1;
+    if ( where_put_ret_code ) {
+        *where_put_ret_code = MBRS_INTERNAL_OK;
+    }
+
+    return result;
+}
+
