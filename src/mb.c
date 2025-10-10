@@ -231,6 +231,14 @@ enum mbrs_internal_error mbrs_process ( struct mbrs_operation_t* op ) {
     op->context->stat.any_recieved += 1;
     #endif
 
+    if ( op->crc != 0 ) {
+        #if MBRS_STATISTICS_ENABLED == 1
+        op->context->stat.invalid_packets_recieved += 1;
+        #endif
+
+        return MBRS_INTERNAL_ERROR_CRC;
+    }
+
     bool broadcast = false;
     enum function_code fc = op->rx_buffer_pointer[BN_FUNCTION_CODE];
 
@@ -248,14 +256,6 @@ enum mbrs_internal_error mbrs_process ( struct mbrs_operation_t* op ) {
     #if MBRS_STATISTICS_ENABLED == 1
     op->context->stat.my_packets_recieved += 1;
     #endif
-
-    if ( op->crc != 0 ) {
-        #if MBRS_STATISTICS_ENABLED == 1
-        op->context->stat.invalid_packets_recieved += 1;
-        #endif
-
-        return MBRS_INTERNAL_ERROR_CRC;
-    }
 
     op->tx_buffer_pointer[BN_ADDRESS] = op->context->address;
     op->tx_buffer_pointer[BN_FUNCTION_CODE] = op->rx_buffer_pointer[BN_FUNCTION_CODE];
