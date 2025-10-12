@@ -65,7 +65,7 @@ uint16_t mbrs_crc16 ( const uint8_t* buf, uint16_t len ) {
     return crc;
 }
 
-void fill_error ( struct mbrs_operation_t* op, enum mbrs_protocol_error ec ) {
+static void fill_error ( struct mbrs_operation_t* op, enum mbrs_protocol_error ec ) {
     op->tx_buffer_pointer[BN_FUNCTION_CODE] |= 0x80;
     op->tx_buffer_pointer[BN_ERROR_CODE] = ec;
     op->tx_bytes = ERROR_ANSWER_LEN;
@@ -75,7 +75,7 @@ void fill_error ( struct mbrs_operation_t* op, enum mbrs_protocol_error ec ) {
     #endif
 }
 
-enum mbrs_internal_error read( struct mbrs_operation_t* op, mbrs_read_cb_t* read_callback ) {
+static enum mbrs_internal_error read( struct mbrs_operation_t* op, mbrs_read_cb_t* read_callback ) {
     if ( read_callback ) {
         uint16_t register_address = GET_VAL_BUF(op->rx_buffer_pointer,BN_REGISTER_ADDRESS);
         uint16_t number_of_registers = GET_VAL_BUF(op->rx_buffer_pointer,BN_NUMBER_OF_REGISTERS);
@@ -119,7 +119,7 @@ enum mbrs_internal_error read( struct mbrs_operation_t* op, mbrs_read_cb_t* read
     return MBRS_INTERNAL_OK;
 }
 
-enum mbrs_internal_error write ( struct mbrs_operation_t* op, mbrs_write_cb_t* write_callback ) {
+static enum mbrs_internal_error write ( struct mbrs_operation_t* op, mbrs_write_cb_t* write_callback ) {
     if ( write_callback ) {
         uint16_t register_address = GET_VAL_BUF(op->rx_buffer_pointer,BN_REGISTER_ADDRESS);
         uint16_t number_of_registers = GET_VAL_BUF(op->rx_buffer_pointer,BN_NUMBER_OF_REGISTERS);
@@ -154,7 +154,7 @@ enum mbrs_internal_error write ( struct mbrs_operation_t* op, mbrs_write_cb_t* w
     return MBRS_INTERNAL_OK;
 }
 
-enum mbrs_internal_error diagnostic( struct mbrs_operation_t* op ) {
+static enum mbrs_internal_error diagnostic( struct mbrs_operation_t* op ) {
     uint16_t subfunction = GET_VAL_BUF(op->rx_buffer_pointer,BN_DIAG_SUBFUNCTION);
     uint16_t data = GET_VAL_BUF(op->rx_buffer_pointer,BN_DIAG_DATA);
     uint16_t return_data = 0;
