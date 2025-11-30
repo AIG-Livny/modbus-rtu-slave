@@ -90,7 +90,7 @@ enum mbrs_protocol_error {
 /// MODBUS Protocol errors END
 
 // Read function callback type. data* - place answer there, data_len* - place length there
-typedef enum mbrs_protocol_error (mbrs_read_cb_t)(uint16_t address, uint16_t number_of_registers, uint8_t** data, uint16_t* data_len);
+typedef enum mbrs_protocol_error (mbrs_read_cb_t)(uint16_t address, uint16_t number_of_registers, uint8_t* data, uint8_t* data_len);
 
 // Write function callback type. data* - input data buffer
 typedef enum mbrs_protocol_error (mbrs_write_cb_t)(uint16_t address, uint16_t number_of_registers, uint8_t* data, uint16_t data_len);
@@ -108,6 +108,7 @@ struct mbrs_operation_t {
     uint16_t tx_buffer_len;
     uint16_t rx_bytes;
     uint16_t tx_bytes;
+    uint16_t tx_counter;
     uint16_t crc;
 };
 

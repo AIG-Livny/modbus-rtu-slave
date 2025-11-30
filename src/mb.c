@@ -80,28 +80,20 @@ static enum mbrs_internal_error read( struct mbrs_operation_t* op, mbrs_read_cb_
         uint16_t register_address = GET_VAL_BUF(op->rx_buffer_pointer,BN_REGISTER_ADDRESS);
         uint16_t number_of_registers = GET_VAL_BUF(op->rx_buffer_pointer,BN_NUMBER_OF_REGISTERS);
 
-        uint8_t* data = NULL;
         uint8_t data_len = 0;
 
-        enum mbrs_protocol_error error = read_callback(register_address, number_of_registers, &data, &data_len);
+        enum mbrs_protocol_error error = read_callback(register_address, number_of_registers, &op->tx_buffer_pointer[BN_READ_ANSWER_DATA], &data_len);
 
         if ( error ) {
             fill_error(op, error);
             return MBRS_INTERNAL_ERROR_ANSWERED_ERROR;
         } else {
-            if ( not data ) {
-                fill_error(op, MBRS_PROTOCOL_ERROR_DEVICE_FAILURE);
-                return MBRS_INTERNAL_ERROR_ANSWERED_ERROR;
-            }
-
             if ( READ_ANSWER_LEN_WITHOUT_DATA + data_len > op->tx_buffer_len ) {
                 fill_error(op, MBRS_PROTOCOL_ERROR_DATA_ADDRESS);
                 return MBRS_INTERNAL_ERROR_ANSWERED_ERROR;
             }
 
             op->tx_buffer_pointer[BN_READ_ANSWER_NUMBER_OF_DATA_BYTES] = data_len;
-            memcpy(&op->tx_buffer_pointer[BN_READ_ANSWER_DATA], data, data_len);
-
             op->tx_bytes = READ_ANSWER_LEN_WITHOUT_DATA + data_len;
         }
 
@@ -295,6 +287,7 @@ enum mbrs_internal_error mbrs_process ( struct mbrs_operation_t* op ) {
     } else {
         op->tx_bytes = 0;
     }
+    op->tx_counter = 0;
 
     return error;
 }
@@ -322,15 +315,17 @@ void mbrs_input_byte ( struct mbrs_operation_t* op, uint8_t data, enum mbrs_inte
 }
 
 uint8_t mbrs_output_byte ( struct mbrs_operation_t* op, enum mbrs_internal_error* where_put_ret_code ) {
-    if ( op->tx_bytes == 0 ) {
+    if ( op->tx_counter >= op->tx_bytes ) {
         if ( where_put_ret_code ) {
             *where_put_ret_code = MBRS_INTERNAL_ERROR_MESSAGE_ENDED;
         }
+        op->tx_bytes = 0;
+        op->tx_counter = 0;
         return 0;
     }
 
-    uint8_t result = op->tx_buffer_pointer[op->tx_bytes];
-    op->tx_bytes -= 1;
+    uint8_t result = op->tx_buffer_pointer[op->tx_counter];
+    op->tx_counter += 1;
     if ( where_put_ret_code ) {
         *where_put_ret_code = MBRS_INTERNAL_OK;
     }
